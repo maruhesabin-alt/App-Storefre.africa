@@ -1,24 +1,108 @@
-# App Store Free — prototype
+# COLLECT PRO — version 2
 
-## Lancer en local (Visual Studio Code)
-1. Dézippe le dossier et ouvre-le dans VS Code.
-2. Installe l'extension **Live Server** (Ritwick Dey).
-3. Clic droit sur `index.html` > **Open with Live Server**.
+Site + serveur de collecte et de gestion de données, avec **base de données SQL réelle**, **administration protégée par mot de passe**, **analyse de sources externes en arrière-plan**, import vérifié et sauvegardes.
+
+> **Point important sur la base de données.** Cette version utilise **SQLite** (le moteur SQL intégré à Node.js 22.13+, aucune installation) et **non PostgreSQL**. Le schéma (`migrations/001_init.sql`) est en SQL simple, pensé pour être porté vers PostgreSQL, mais ce portage **n'a pas été réalisé ni testé**. Voir « Limites ».
 
 ## Contenu
-- `index.html`, `css/`, `js/` : le magasin (front-end)
-- `apps/` : 2 mini-applications (calculatrice, agenda), fichiers HTML autonomes
-- `files/` : 3 livres PDF d'exemple + 3 rapports ETIMARKI (documents fournis par Sabin)
-- `assets/icon.svg`, `manifest.json`, `sw.js` : logo et base PWA
 
-## Ce qui fonctionne
-Navigation, recherche, installation/ouverture des mini-apps, lecture et téléchargement des PDF, création de compte, connexion avec code, récupération par questions, publication (statut « en attente »).
+| Fichier / dossier | Rôle |
+|---|---|
+| `index.html` | Page d'accueil du site |
+| `app.html` | Espace de gestion : créer activités et champs, **publier** le formulaire |
+| `admin.html` | **Administration** : connexion, vue générale, inscriptions (serveur), sources et analyse, synchronisation, import/export, journal, sauvegardes |
+| `form.html` | Formulaire public `form.html?id=IDENTIFIANT` |
+| `server.js`, `src/` | Serveur : API `/api/v1`, base, authentification, tâches de fond |
+| `migrations/` | Schéma SQL (appliqué automatiquement au démarrage) |
+| `scripts/` | `create-admin.js` (créer/réinitialiser l'admin), `restore.js` (restaurer une sauvegarde) |
+| `tests/api.test.js` | 28 tests automatisés |
+| `.env.example` | Modèle de configuration (valeurs fictives) |
+| `data/` | Créé par le serveur : `collect-pro.db`, `backups/`, `secret.key`. **Ne jamais partager ce dossier.** |
 
-## Limites (honnêtes)
-- Les comptes sont stockés dans le navigateur (localStorage) : un compte n'existe que sur l'appareil où il est créé.
-- Le code de connexion s'affiche à l'écran : aucun e-mail n'est envoyé. Pour de vrais e-mails, il faut un backend (ex. Supabase) et un service d'envoi.
-- Les fichiers publiés ne sont pas téléversés ; pas d'espace administrateur ni de modération ; pas de vrai APK.
-- Icônes PWA en SVG : ajoute des PNG 192 et 512 px avant de publier en production.
+## Installation sous Windows avec Visual Studio Code
 
-## Étape suivante
-Brancher Supabase (authentification, base PostgreSQL, stockage) puis héberger sur Cloudflare Pages ou Vercel.
+1. Installez **Node.js LTS (version 22.13 ou plus récente)** depuis https://nodejs.org, puis redémarrez VS Code. Vérifiez : `node -v` doit afficher `v22.13` ou plus.
+2. Décompressez `collect-pro.zip`, puis **Fichier → Ouvrir un dossier** et choisissez `collect-pro`.
+3. **Créez votre fichier de configuration** : copiez `.env.example` en `.env` (clic droit → Copier/Coller, puis renommez), ouvrez `.env` et remplacez :
+   ```
+   ADMIN_EMAIL=votre-adresse@exemple.com
+   ADMIN_PASSWORD=un-mot-de-passe-long-et-unique
+   ```
+   Règles : une valeur par ligne, **pas d'espace autour du `=`**, pas de commentaire en fin de ligne. Un `#` à l'intérieur du mot de passe est accepté. Minimum 10 caractères.
+4. Terminal VS Code (**Terminal → Nouveau terminal**) : `node server.js` (ou `npm start`, ou double-clic sur `start.bat`). Résultat attendu :
+   ```
+   Compte administrateur créé : votre-adresse@exemple.com
+   COLLECT PRO démarré : http://localhost:3000
+   Administration      : http://localhost:3000/admin.html
+   ```
+5. Ouvrez http://localhost:3000/admin.html et connectez-vous. Arrêt du serveur : `Ctrl + C`.
+
+Le compte n'est créé qu'au **premier** lancement. Pour changer le mot de passe plus tard : modifiez `ADMIN_PASSWORD` dans `.env`, puis `npm run admin`.
+
+> Live Server (extension VS Code) ne remplace pas `server.js` : sans le serveur, il n'y a ni base, ni connexion, ni réception de réponses.
+
+## Utilisation
+
+1. **Espace de gestion** (`/app.html`) : créez une activité et ses champs.
+2. Onglet **Synchronisation et API** de l'activité → **Publier**. (Vous êtes déjà connecté si vous vous êtes connecté sur `/admin.html` dans le même navigateur.) Partagez le **lien public** affiché.
+3. **Administration** (`/admin.html`) :
+   - **Activités et inscriptions** : les réponses reçues, lues directement dans la base : recherche, pagination, modification, suppression récupérable, restauration, export.
+   - **Sources et analyse** : ajoutez l'URL d'une API que vous êtes autorisé à interroger (avec sa clé si nécessaire), puis **Analyser les données**. Le système vérifie la joignabilité, cherche la documentation OpenAPI/Swagger aux emplacements habituels, liste les endpoints GET et signale les besoins d'authentification. Ensuite : **Configurer l'import** (activité cible, endpoint, correspondance des champs) → **Aperçu** → **Valider cette source** → **Lancer l'import**.
+   - **Synchronisation** : historique, tâches, **Vérifier la cohérence**.
+   - **Importer / Exporter** : fichiers CSV et JSON.
+   - **Journal** et **Sauvegardes**.
+
+Modifier les champs ou le statut d'une activité publiée : cliquez de nouveau sur **Republier**. Archiver ou supprimer une activité dans l'espace de gestion ferme son formulaire public.
+
+## Ce que fait réellement « Analyser les données »
+
+- Il travaille **uniquement** sur les sources que vous ajoutez. Il **ne recherche pas** de sources sur Internet de lui-même et n'invente aucune API.
+- Il s'exécute en arrière-plan avec barre de progression ; vous pouvez l'annuler et continuer à utiliser le site.
+- La découverte de documentation ne fonctionne que si l'API publie un fichier OpenAPI/Swagger JSON à un emplacement courant (`/openapi.json`, `/swagger.json`, `/v3/api-docs`, `/api-docs`, `/.well-known/openapi.json`). Sinon le système le dit et vous indiquez l'endpoint à la main.
+- Une source qui répond 401/403 est signalée « accès refusé / clé requise » ; la clé se configure dans la source (chiffrée sur le serveur, jamais réaffichée).
+- L'import : chaque ligne est validée selon les champs de l'activité ; les doublons (identifiant de la source ou e-mail) sont ignorés ; les lignes invalides sont rejetées avec leur motif ; un import est marqué « réussi » seulement après **vérification en base** du nombre de lignes insérées. Les réimports ne créent pas de doublons. Les erreurs temporaires (429, 5xx, réseau) sont retentées 2 fois.
+- L'import ne lit qu'**une seule réponse** (pas de pagination automatique).
+- **Protection SSRF** : par défaut, les adresses privées ou locales (127.0.0.1, 192.168.x.x, 10.x.x.x…) sont refusées. Pour interroger un service sur votre propre machine ou réseau, ajoutez `ALLOW_PRIVATE_SOURCES=1` dans `.env`.
+- **Doublons** : pour les formulaires, le premier champ de type e-mail sert de clé (casse ignorée) ; une seconde réponse avec le même e-mail reçoit un refus clair. Les activités de type « messages » n'ont pas de détection automatique.
+
+## Sécurité
+
+- Mots de passe hachés (scrypt) ; verrouillage du compte 15 min après 5 échecs ; limitation du débit de connexion ; sessions de 12 h stockées sous forme hachée.
+- Toutes les routes d'administration exigent une session, vérifiée côté serveur à chaque appel.
+- Requêtes SQL paramétrées (testé avec des tentatives d'injection). Clés API des sources chiffrées (AES-256-GCM) avec `SECRET_KEY` ou `data/secret.key` : **sauvegardez cette clé avec vos données**, sans elle les clés API enregistrées sont illisibles.
+- Le fichier `.env`, `data/` et le code serveur ne sont jamais servis au navigateur (testé). `.env` est exclu du ZIP et de `.gitignore`.
+- Le journal ne contient ni mots de passe, ni clés, ni contenu des inscriptions.
+- La session est conservée dans le navigateur (en-tête `Authorization`) ; utilisez un ordinateur de confiance. En production, placez le serveur derrière **HTTPS**.
+
+## Sauvegarde et restauration
+
+- Sauvegarde automatique au démarrage puis toutes les 6 h si la dernière a plus de 24 h ; 14 conservées (`data/backups/`). Manuelle : **Administration → Sauvegardes**.
+- **Copiez régulièrement `data/backups/` et `data/secret.key` hors de l'ordinateur.**
+- Restauration : arrêtez le serveur, puis `node scripts/restore.js data/backups/NOM.db`, puis relancez. La base actuelle est conservée à côté.
+
+## Tests
+
+```
+npm test
+```
+28 tests, dont : authentification et verrouillage, lecture de `.env` (BOM, `#`), mot de passe haché, refus sans session, validation, doublons, injection SQL, modification/suppression/restauration, isolation entre activités, exports (neutralisation des formules CSV), import de fichier, **analyse et import contre une API factice locale** (documentation OpenAPI, mauvaise clé, source injoignable, nouvelles tentatives, idempotence), protection SSRF, cohérence, sauvegarde et restauration, reprise de l'ancienne base `db.json`, protection des fichiers privés.
+
+## API (`/api/v1`)
+
+Publiques : `GET /health`, `GET /public/activities/:id`, `POST /public/activities/:id/submissions` (201 si enregistré, 409 doublon).
+Authentification : `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`.
+Protégées (en-tête `Authorization: Bearer <jeton>`) : `GET /admin/overview`, `GET /admin/consistency`, `GET /activities`, `PUT /activities/:id`, `GET /activities/:id/records`, `GET /activities/:id/export?format=csv|json`, `POST /activities/:id/import`, `GET|PATCH|DELETE /records/:id`, `POST /records/:id/restore`, `GET|POST /sources`, `PUT|DELETE /sources/:id`, `PUT /sources/:id/import-config`, `POST /sources/:id/preview|validate`, `POST /jobs/analyze|import`, `GET /jobs`, `GET /jobs/:id`, `POST /jobs/:id/cancel`, `GET /logs/audit|sync`, `GET|POST /backups`, `GET /backups/:nom`.
+
+## Mise en ligne
+
+Il faut un hébergeur qui exécute Node.js 22.13+ et conserve un disque persistant pour `data/`. Définissez `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SECRET_KEY` dans les variables d'environnement de l'hébergeur (jamais dans un dépôt public), placez le serveur derrière HTTPS, et sauvegardez `data/`. Les conditions et la gratuité éventuelle dépendent de l'hébergeur.
+
+## Limites actuelles
+
+- **SQLite et non PostgreSQL** (voir plus haut) ; adapté à un usage privé et à quelques dizaines de milliers de lignes. Un seul serveur.
+- Un seul rôle (administrateur) ; création d'autres comptes uniquement via `scripts/create-admin.js`.
+- Les activités sont **créées dans l'espace de gestion** (stocké dans le navigateur) puis **publiées** vers le serveur ; l'administration lit et modifie les données du serveur. Les deux interfaces ne partagent pas encore la même liste d'activités en temps réel : après publication, les réponses se consultent dans l'administration.
+- Le tableau de bord se rafraîchit toutes les 10 s (pas de notifications instantanées).
+- Pas d'envoi d'e-mails, pas de pièces jointes, PDF via « Enregistrer au format PDF » du navigateur (espace de gestion).
+- Découverte d'API limitée aux sources que vous ajoutez et aux documentations OpenAPI JSON ; pas de pagination d'import, pas de planification automatique des imports.
+- Non testé : navigateurs autres que Chromium, affichage mobile, déploiement chez un hébergeur, PostgreSQL.
